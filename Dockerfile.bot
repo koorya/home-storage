@@ -1,0 +1,2 @@
+FROM home-storage/node_base
+COPY . ./

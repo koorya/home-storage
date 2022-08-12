@@ -2,8 +2,6 @@ import { Telegraf, Markup } from 'telegraf'
 import { generate } from "generate-password"
 
 
-
-
 const bot = new Telegraf(process.env.BOT_TOKEN || '')
 
 const mainMenu = Markup.keyboard(['/generate_code']).resize();
