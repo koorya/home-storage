@@ -4,8 +4,13 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "npx ts-node -r dotenv/config src/index.ts",
-    "dev": "nodemon --exec \"npm start\""
+    "start": "npx ts-node src/index.ts",
+    "dev": "nodemon --exec \"npx ts-node -r tsconfig-paths/register -r dotenv/config src/index.ts\"",
+    "dev:startdb": "docker-compose up db",
+    "dev:startproject": "docker-compose up",
+    "dev:buildbase": "sourse scripts/build-base.sh",
+    "dev:buildproject": "sourse scripts/build-project.sh",
+    "typeorm": "ts-node -r tsconfig-paths/register -r dotenv/config ./node_modules/typeorm/cli.js -d src/typeorm/data-source.ts"
   },
   "author": "",
   "license": "ISC",
@@ -13,7 +18,9 @@
     "@types/node": "^18.7.2",
     "dotenv": "^16.0.1",
     "generate-password": "^1.7.0",
+    "pg": "^8.7.3",
     "telegraf": "^4.8.6",
+    "tsconfig-paths": "^4.1.0",
     "typeorm": "^0.3.7"
   },
   "devDependencies": {
