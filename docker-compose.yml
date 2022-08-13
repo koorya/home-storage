@@ -17,10 +17,13 @@ services:
     depends_on:
       - db
     image: home-storage/bot
+    volumes:
+      - ${DB_IMAGE_PATH}:/usr/src/app/${DB_IMAGE_PATH}
     env_file:
       - .env
       - .prod.env
 
-    command: npm start
+    command: bash -c "npm run typeorm migration:run && npm start"
+
 
 

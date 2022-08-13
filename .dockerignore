@@ -1,5 +1,6 @@
 node_modules
 db_data
+db_image
 Dockerfile*
 dockercompose*
 .dockerignore

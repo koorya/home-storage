@@ -22,5 +22,11 @@ export class Box extends BaseEntity {
 	})
 	description: string;
 
+	@Column({
+		type: 'character varying',
+		length: 32,
+		nullable: true,
+	})
+	picturePath: string;
 
 }
