@@ -3,10 +3,16 @@ import {
 	BaseEntity,
 	Column,
 	Entity,
+	ManyToOne,
+	OneToMany,
 	PrimaryGeneratedColumn,
+	Tree,
+	TreeChildren,
+	TreeParent,
 } from 'typeorm';
 
 @Entity()
+@Tree("closure-table")
 export class Box extends BaseEntity {
 	@PrimaryGeneratedColumn('uuid')
 	id: string;
@@ -29,4 +35,9 @@ export class Box extends BaseEntity {
 	})
 	picturePath: string;
 
+	@TreeParent()
+	parent: Box;
+
+	@TreeChildren()
+	nestedBoxes: Box[];
 }
