@@ -147,53 +147,52 @@ import { In, Like } from 'typeorm';
 
 	bot.on('photo', async (ctx) => {
 		console.log(ctx.message);
-		if (ctx.message.reply_to_message?.from.is_bot && ('text' in ctx.message.reply_to_message)) {
-			const code = ctx.message.reply_to_message.text;
-			if (/([a-z,0-9]{8})/.test(code)) {
-				await addBox(code);
-			}
-		} else {
-			const matches = ctx.message.caption.matchAll(/(?:\/?(?:[b,B]?(?:(?:ox))_))?([a-z,0-9]{8})/g);
-
-			const box_codes = [...matches].map(([a, code]) => code);
-			console.log("box_codes: ", box_codes);
-			const code = box_codes.pop();
-			if (!code) {
-				ctx.reply('необходимо ввести код');
-				return;
-			}
-			if (/^add /.test(ctx.message.caption)) {
-				if (!await Box.findOne({ where: { name: code } })) {
-
-					await addBox(code);
-				} else {
-					ctx.reply(`/box_${code} уже есть в базе`);
-				}
-			} else if (/^update /.test(ctx.message.caption)) {
-				ctx.reply(`Обновление пока не поддерживается`);
-			}
-
-		}
-
-
-		async function addBox(code: string) {
+		const downloadPhoto = async () => {
 			const { file_id: photoId } = ctx.message.photo.pop();
 			const fileUrl = await ctx.telegram.getFileLink(photoId);
-			const arrayBuffer = await fetch(fileUrl.toString()).then(res => res.arrayBuffer());
-			const buffer = Buffer.from(arrayBuffer);
-			const fileExt = fileUrl.toString().split('.').pop();
-
-			const uniq_name = generate({ length: 16, uppercase: false, numbers: true });
-			const outputFileName = `${uniq_name}.${fileExt}`;
-			await new Promise((resolve) => fs.createWriteStream(path.join(process.env.DB_IMAGE_PATH, outputFileName)).write(buffer, resolve));
-			const box = new Box();
-			box.name = code;
-			box.description = '';
-			box.picturePath = outputFileName;
-			await box.save();
-			ctx.reply(`Добавлен ${code} /box_${code}`);
+			return await downloadPhotoByURL(fileUrl);
 		}
+		if (ctx.message.reply_to_message?.from.is_bot && ('text' in ctx.message.reply_to_message)) {
+			const code = ctx.message.reply_to_message.text;
+
+			if (/([a-z,0-9]{8})/.test(code)) {
+
+
+				const box = new Box();
+				box.name = code;
+				box.description = '';
+				box.picturePath = await downloadPhoto();
+				await box.save();
+				ctx.reply(`Добавлен ${code} /box_${code}`);
+			}
+		} else if (ctx.message.reply_to_message?.from.is_bot && ('photo' in ctx.message.reply_to_message)) {
+			const box_id = /^([a-z,0-9]{8})/.exec(ctx.message.reply_to_message.caption)[0];
+
+			const command = ctx.message.caption;
+			if (command == "update") {
+				console.log(command, box_id);
+
+				const box = await Box.findOne({ where: { name: box_id } });
+				box.picturePath = await downloadPhoto();
+				box.save();
+
+				ctx.reply(`Фото обновлено /box_${box_id}`);
+			}
+		}
+
+
 	})
+
+	async function downloadPhotoByURL(fileUrl: URL) {
+		const arrayBuffer = await fetch(fileUrl.toString()).then(res => res.arrayBuffer());
+		const buffer = Buffer.from(arrayBuffer);
+		const fileExt = fileUrl.toString().split('.').pop();
+
+		const uniq_name = generate({ length: 16, uppercase: false, numbers: true });
+		const outputFileName = `${uniq_name}.${fileExt}`;
+		await new Promise((resolve) => fs.createWriteStream(path.join(process.env.DB_IMAGE_PATH, outputFileName)).write(buffer, resolve));
+		return outputFileName;
+	}
 
 	bot.on('callback_query', (ctx) => {
 		// Explicit usage
