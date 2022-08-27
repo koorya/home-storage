@@ -6,8 +6,9 @@
   "scripts": {
     "start": "npx ts-node src/index.ts",
     "dev": "nodemon --exec \"npx ts-node -r tsconfig-paths/register -r dotenv/config src/index.ts\"",
-    "dev:startdb": "docker-compose up db",
-    "dev:startproject": "docker-compose up",
+    "dev:startdb": "docker-compose run --publish 5432:5432 -d db",
+    "dev:startproject": "docker-compose up -d",
+    "dev:stop": "docker-compose down",
     "dev:buildbase": "scripts/build-base.sh",
     "dev:buildproject": "scripts/build-project.sh",
     "typeorm": "ts-node -r tsconfig-paths/register -r dotenv/config ./node_modules/typeorm/cli.js -d src/typeorm/data-source.ts"
