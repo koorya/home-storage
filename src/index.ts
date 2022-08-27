@@ -4,9 +4,16 @@ import { AppDataSource } from './typeorm/data-source';
 import { Box } from './typeorm/entities/box';
 import fs from 'fs';
 import path from 'node:path/posix';
-import { In, Like } from 'typeorm';
+import { In, Like, TreeRepository } from 'typeorm';
+import { Stuff } from './typeorm/entities/stuff';
 
+const codeRegExp = /[a-z,0-9]{8}/;
+const boxShortNameRegExp = /^(?:\/)?[b,B](?:ox)?[_,\s]([a-z,0-9]{1,8})$/;
+const commandListRegEx = /(?:\/)?[l,L]i?st?$/;
+const commandPackRegExp = /\/?pack /;
+const packParserRegExp = /([\+\-])(?:([a-z0-9]{8}\b)|"((?:[\wа-я]+\s?)+)")/g;
 (async () => {
+
 	await AppDataSource.initialize();
 	const BoxRepository = AppDataSource.manager.getTreeRepository(Box);
 	const dataManager = AppDataSource.manager;
@@ -15,7 +22,7 @@ import { In, Like } from 'typeorm';
 	const bot = new Telegraf(process.env.BOT_TOKEN || '')
 
 
-	const mainMenu = Markup.keyboard(['/generate_code', '/list']).resize();
+	const mainMenu = Markup.keyboard(['/generate_code', '/list'], { columns: 2 }).resize();
 
 
 	bot.start((ctx) => ctx.reply("menu", mainMenu));
@@ -43,21 +50,12 @@ import { In, Like } from 'typeorm';
 	// 	ctx.reply(`Hello ${ctx.from.first_name}`)
 	// })
 
-	bot.hears(/create ([a-z,0-9]{3,8})$/, (ctx) => {
-		const message_name = ctx.match[1];
-		const box = new Box();
-		box.name = message_name;
-		box.description = 'sample description';
-		box.save();
-		// AppDataSource.manager.save()
-		ctx.reply(message_name);
-	})
 
-
-	bot.hears(/^(?:\/)?[b,B](?:ox)?[_,\s]([a-z,0-9]{1,8})$/, async (ctx) => {
+	bot.hears(boxShortNameRegExp, async (ctx) => {
 		const message_name = ctx.match[1];
 
-		const boxes = await Box.find({ where: { name: Like(`${message_name}%`) } });
+		// const boxes = await Box.find({ where: { name: Like(`${message_name}%`) } });
+		const boxes = await BoxRepository.find({ where: { name: Like(`${message_name}%`) }, relations: ['stuff'] });
 
 		if (!boxes.length) {
 
@@ -69,18 +67,8 @@ import { In, Like } from 'typeorm';
 
 		} else {
 			const box = boxes.pop();
-			box.parent = (await BoxRepository.findAncestorsTree(box)).parent;
-			console.log(box);
-			const box_nested = await AppDataSource.manager.getTreeRepository(Box).findDescendants(box);
-			console.log(box_nested);
-			box.nestedBoxes = box_nested.filter(({ id }) => id != box.id);
 
-			const nested = box.nestedBoxes.map(({ name }) => `/b_${name}`).join(', ');
-
-			const message_text = `${box.name}, ${box.description},
-			${nested == '' ? 'Вещи' : `Внутри: ${nested}`}
-			Лежит в: ${box.parent ? `/box_${box.parent.name}` : '---'} 
-			`;
+			const message_text = await renderBox(box, BoxRepository);
 			if (!box.picturePath)
 				ctx.reply(`нет фото ${message_text}`);
 			else {
@@ -88,7 +76,7 @@ import { In, Like } from 'typeorm';
 			}
 		}
 	})
-	bot.hears(/(?:\/)?[l,L]i?st?$/, async (ctx) => {
+	bot.hears(commandListRegEx, async (ctx) => {
 		const message_name = ctx.match[1];
 
 		const boxes = await Box.find();
@@ -104,45 +92,97 @@ import { In, Like } from 'typeorm';
 		}
 	})
 
-	bot.hears(/\/?pack /, async (ctx) => {
-		// n95or525 
+	bot.hears(commandPackRegExp, async (ctx) => {
 		if (ctx.message.reply_to_message?.from.is_bot && 'photo' in ctx.message.reply_to_message) {
-			const parent_box_name = /([a-z,0-9]{8})/.exec(ctx.message.reply_to_message.caption)[1];
+			const parent_box_name = codeRegExp.exec(ctx.message.reply_to_message.caption)[1];
 			const parent_box = await Box.findOne({ where: { name: parent_box_name } });
-
 
 			if (!parent_box) {
 				ctx.reply("Неправильная родительская коробка");
 				return;
 			}
-			const matches = ctx.message.text.matchAll(/\/?(?:[b,B]?(?:(?:ox))_)([a-z,0-9]{8})/g);
+			const matches = ctx.message.text.matchAll(RegExp(codeRegExp, "g"));
 
-			const box_codes = [...matches].map(([a, code]) => code);
+			const box_codes = [...matches].map(([code]) => code);
 			console.log(box_codes);
 			const boxes = await BoxRepository.find({ where: { name: In(box_codes) } });
-
-			// parent_box.nestedBoxes = await BoxRepository.findDescendants(parent_box);
-			// parent_box.nestedBoxes.push(...boxes);
-			// parent_box.save();
-			// console.log(parent_box);
 
 			for (const box of boxes) {
 				console.log("saving: ", box.name)
 				box.parent = parent_box;
 				console.log(box);
-				// await box.save({});
 				BoxRepository.save(box);
-				// await AppDataSource.manager.save(box);
+			}
+		}
+	});
+
+	bot.hears(packParserRegExp, async (ctx) => {
+		if (ctx.message.reply_to_message?.from.is_bot && 'photo' in ctx.message.reply_to_message) {
+			const box_name = codeRegExp.exec(ctx.message.reply_to_message.caption).pop();
+			// const box = await Box.findOne({ where: { name: box_name } });
+			const box = await BoxRepository.findOne({ where: { name: box_name }, relations: ['stuff'] });
+			if (!box) {
+				ctx.reply("Неправильная родительская коробка");
+				return;
 			}
 
-		}
-		// const codes = [ctx.match[1], ctx.match[2]];
-		// const boxes = await Promise.all(codes.map((name)=>Box.find({ where: { name: Like(`${name}%`) } })));
-		// if(boxes.find(boxlist=>boxlist.length!=1))
-		// 	ctx.reply('Неправильный запрос. Либо много коробок попадает под условие, либо коробка не найдена');
-		// else {
 
-		// }
+			const matches = [...ctx.message.text.matchAll(RegExp(packParserRegExp.source, 'g'))];
+			const commited: { op: '+' | '-'; type: 'box' | 'thing'; name: string; }[] = [];
+			await Promise.all(matches.map(async ([full, op_str, code, name]) => {
+				const op = op_str as '+' | '-';
+				if (code) {
+					const sub_box = await BoxRepository.findOne({ where: { name: code } });
+					if (op == '+') {
+						if (sub_box) {
+							sub_box.parent = box;
+							BoxRepository.save(sub_box);
+							commited.push({ op, type: 'box', name: code });
+						}
+					} else {
+						const box_nested = (await AppDataSource.manager.getTreeRepository(Box).findDescendantsTree(box)).nestedBoxes;
+						if (box_nested.find(v => v.name == sub_box.name)) {
+							sub_box.parent = null;
+							BoxRepository.save(sub_box);
+							commited.push({ op, type: 'box', name: code });
+						}
+					}
+				} else {
+					if (op == '+') {
+
+						const thing = new Stuff();
+
+						thing.name = name;
+						thing.description = '';
+						thing.box = box;
+						await thing.save();
+						box.stuff.push(thing);
+						commited.push({ op, type: 'thing', name });
+					} else {
+						const thing = box.stuff.find(v => v.name == name);
+						if (thing) {
+							thing.box = null;
+							await thing.save();
+							box.stuff = box.stuff.filter(v => v != thing);
+							commited.push({ op, type: 'thing', name });
+						}
+					}
+				}
+			}));
+			const addThings = commited.filter(({ type, op }) => type == 'thing' && op == '+');
+			const removeThings = commited.filter(({ type, op }) => type == 'thing' && op == '-');
+			const addBoxes = commited.filter(({ type, op }) => type == 'box' && op == '+');
+			const removeBoxes = commited.filter(({ type, op }) => type == 'box' && op == '-');
+			const reply = (addThings.length ? `Добавлены вещи: ${addThings.map(v => v.name).join(', ')}\n` : ``) +
+				(removeThings.length ? `Убраны вещи: ${removeThings.map(v => v.name).join(', ')}\n` : ``) +
+				(removeBoxes.length ? `Убраны коробки: ${removeBoxes.map(v => v.name).join(', ')}\n` : ``) +
+				(addBoxes.length ? `Добавлены коробки: ${addBoxes.map(v => v.name).join(', ')}\n` : ``);
+			ctx.reply(reply || 'ни одна задача не обработана');
+
+			await ctx.telegram.editMessageCaption(ctx.message.chat.id,
+				ctx.message.reply_to_message.message_id, '	',
+				await renderBox(box, BoxRepository)).catch(() => { console.log('сообщение не изменено') })
+		}
 	});
 
 	bot.on('photo', async (ctx) => {
@@ -155,7 +195,7 @@ import { In, Like } from 'typeorm';
 		if (ctx.message.reply_to_message?.from.is_bot && ('text' in ctx.message.reply_to_message)) {
 			const code = ctx.message.reply_to_message.text;
 
-			if (/([a-z,0-9]{8})/.test(code)) {
+			if (codeRegExp.test(code)) {
 
 
 				const box = new Box();
@@ -166,7 +206,7 @@ import { In, Like } from 'typeorm';
 				ctx.reply(`Добавлен ${code} /box_${code}`);
 			}
 		} else if (ctx.message.reply_to_message?.from.is_bot && ('photo' in ctx.message.reply_to_message)) {
-			const box_id = /^([a-z,0-9]{8})/.exec(ctx.message.reply_to_message.caption)[0];
+			const box_id = RegExp(`^(${codeRegExp.source})`).exec(ctx.message.reply_to_message.caption)[0];
 
 			const command = ctx.message.caption;
 			if (command == "update") {
@@ -221,3 +261,20 @@ import { In, Like } from 'typeorm';
 	process.once('SIGINT', () => bot.stop('SIGINT'))
 	process.once('SIGTERM', () => bot.stop('SIGTERM'))
 })()
+
+async function renderBox(box: Box, BoxRepository: TreeRepository<Box>) {
+	box.parent = (await BoxRepository.findAncestorsTree(box)).parent;
+	const box_nested = (await AppDataSource.manager.getTreeRepository(Box).findDescendantsTree(box)).nestedBoxes;
+	box.nestedBoxes = box_nested.filter(({ id }) => id != box.id);
+
+	const nested = box.nestedBoxes.map(({ name }) => `/b_${name}`).join(', ');
+	const stuff = box.stuff || [];
+
+	const message_text = `${box.name}
+			Лежит в: ${box.parent ? `/box_${box.parent.name}` : '---'};
+			Описание: ${box.description || '---'};
+			Вложено: ${nested || '---'};
+			Вещи: ${stuff.map(v => v.name).join(', ') || '---'}
+			`;
+	return message_text;
+}

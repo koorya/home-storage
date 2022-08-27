@@ -11,11 +11,10 @@ import {
 	TreeChildren,
 	TreeParent,
 } from 'typeorm';
-import { Stuff } from './stuff';
+import { Box } from './box';
 
 @Entity()
-@Tree("closure-table")
-export class Box extends BaseEntity {
+export class Stuff extends BaseEntity {
 	@PrimaryGeneratedColumn('uuid')
 	id: string;
 
@@ -37,12 +36,7 @@ export class Box extends BaseEntity {
 	})
 	picturePath: string;
 
-	@TreeParent()
-	parent: Box;
+	@ManyToOne(() => Box, box => box.stuff)
+	box: Box;
 
-	@TreeChildren()
-	nestedBoxes: Box[];
-
-	@OneToMany(() => Stuff, (stuff) => stuff.box)
-	stuff: Stuff[];
 }
