@@ -4,10 +4,11 @@ import { AppDataSource } from './typeorm/data-source';
 import { Box } from './typeorm/entities/box';
 import fs from 'fs';
 import path from 'node:path/posix';
-import { In, Like, TreeRepository } from 'typeorm';
+import { In, IsNull, Like, Not, TreeRepository } from 'typeorm';
 import { Stuff } from './typeorm/entities/stuff';
 
 const codeRegExp = /[a-z,0-9]{8}/;
+const commandRemoveRegExp = RegExp(`^/rmbox (${codeRegExp.source})`);
 const boxShortNameRegExp = /^(?:\/)?[b,B](?:ox)?[_,\s]([a-z,0-9]{1,8})$/;
 const commandListRegEx = /(?:\/)?[l,L]i?st?$/;
 const commandPackRegExp = /\/?pack /;
@@ -22,7 +23,7 @@ const packParserRegExp = /([\+\-])(?:([a-z0-9]{8}\b)|"((?:[\wа-я]+\s?)+)")/g;
 	const bot = new Telegraf(process.env.BOT_TOKEN || '')
 
 
-	const mainMenu = Markup.keyboard(['/generate_code', '/list'], { columns: 2 }).resize();
+	const mainMenu = Markup.keyboard(['/generate_code', '/list', '/ls_stuff', '/find', '/ls_box'], { columns: 3 }).resize();
 
 
 	bot.start((ctx) => ctx.reply("menu", mainMenu));
@@ -76,6 +77,44 @@ const packParserRegExp = /([\+\-])(?:([a-z0-9]{8}\b)|"((?:[\wа-я]+\s?)+)")/g;
 			}
 		}
 	})
+	bot.hears(commandRemoveRegExp, async (ctx) => {
+		const code = ctx.match[1];
+		const box = await BoxRepository.findOne({ where: { name: code }, relations: ['stuff'] });
+		if (box) {
+			if (box.stuff.length || (await BoxRepository.findDescendants(box)).length > 1) {
+				ctx.reply(`/box_${code} не пустой`);
+			} else {
+				fs.rename(path.join(process.env.DB_IMAGE_PATH, box.picturePath), path.join(process.env.DB_IMAGE_PATH, 'rm_' + box.picturePath), () => { });
+				await BoxRepository.remove(box);
+				// await box.remove();
+				ctx.reply(`${code} удален`);
+			}
+		} else {
+			ctx.reply(`${code} не найден`);
+		}
+	});
+	bot.hears('/ls_stuff', async (ctx) => {
+		const stuff = await Stuff.find();
+		const reply = stuff.map(v => `${v.name}`).join(", ");
+		ctx.reply(reply);
+	});
+	bot.hears(/\/find ([\wа-я]+)/, async (ctx) => {
+		const key_word = ctx.match[1];
+		const stuff = await Stuff.find({ where: { name: Like(`%${key_word}%`), box: Not(IsNull()) }, relations: ['box'] });
+		const reply = stuff.map(v => `${v.name} - /b_${v.box.name}`).join(', ');
+		ctx.reply(reply);
+
+	});
+	bot.hears('/ls_box', async (ctx) => {
+		const boxes = await Box.find();
+		Promise.all(boxes.map(
+			async (box) => {
+
+				await ctx.replyWithPhoto({ source: path.join(process.env.DB_IMAGE_PATH, box.picturePath) }, { caption: `/b_${box.name}` });
+			}
+		))
+
+	});
 	bot.hears(commandListRegEx, async (ctx) => {
 		const message_name = ctx.match[1];
 
@@ -119,7 +158,6 @@ const packParserRegExp = /([\+\-])(?:([a-z0-9]{8}\b)|"((?:[\wа-я]+\s?)+)")/g;
 	bot.hears(packParserRegExp, async (ctx) => {
 		if (ctx.message.reply_to_message?.from.is_bot && 'photo' in ctx.message.reply_to_message) {
 			const box_name = codeRegExp.exec(ctx.message.reply_to_message.caption).pop();
-			// const box = await Box.findOne({ where: { name: box_name } });
 			const box = await BoxRepository.findOne({ where: { name: box_name }, relations: ['stuff'] });
 			if (!box) {
 				ctx.reply("Неправильная родительская коробка");
@@ -263,7 +301,7 @@ const packParserRegExp = /([\+\-])(?:([a-z0-9]{8}\b)|"((?:[\wа-я]+\s?)+)")/g;
 })()
 
 async function renderBox(box: Box, BoxRepository: TreeRepository<Box>) {
-	box.parent = (await BoxRepository.findAncestorsTree(box)).parent;
+	const parents = (await BoxRepository.findAncestors(box));
 	const box_nested = (await AppDataSource.manager.getTreeRepository(Box).findDescendantsTree(box)).nestedBoxes;
 	box.nestedBoxes = box_nested.filter(({ id }) => id != box.id);
 
@@ -271,7 +309,7 @@ async function renderBox(box: Box, BoxRepository: TreeRepository<Box>) {
 	const stuff = box.stuff || [];
 
 	const message_text = `${box.name}
-			Лежит в: ${box.parent ? `/box_${box.parent.name}` : '---'};
+			Лежит в: ${parents.length > 1 ? parents.slice(1).reverse().map(b => `/box_${b.name}`).join(' --> ') : '---'};
 			Описание: ${box.description || '---'};
 			Вложено: ${nested || '---'};
 			Вещи: ${stuff.map(v => v.name).join(', ') || '---'}
