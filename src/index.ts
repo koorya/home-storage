@@ -100,8 +100,8 @@ const packParserRegExp = /([\+\-])(?:([a-z0-9]{8}\b)|"((?:[\wа-я]+\s?)+)")/g;
 	});
 	bot.hears(/\/find ([\wа-я]+)/, async (ctx) => {
 		const key_word = ctx.match[1];
-		const stuff = await Stuff.find({ where: { name: Like(`%${key_word}%`), box: Not(IsNull()) }, relations: ['box'] });
-		const reply = stuff.map(v => `${v.name} - /b_${v.box.name}`).join(', ');
+		const stuff = await Stuff.find({ where: { name: Like(`%${key_word}%`) }, relations: ['box'] });
+		const reply = stuff.filter(v => !!v.box).map(v => `${v.name} - /b_${v.box.name}`).join(', ');
 		ctx.reply(reply);
 
 	});
@@ -307,9 +307,8 @@ async function renderBox(box: Box, BoxRepository: TreeRepository<Box>) {
 
 	const nested = box.nestedBoxes.map(({ name }) => `/b_${name}`).join(', ');
 	const stuff = box.stuff || [];
-
 	const message_text = `${box.name}
-			Лежит в: ${parents.length > 1 ? parents.slice(1).reverse().map(b => `/box_${b.name}`).join(' --> ') : '---'};
+			Лежит в: ${parents.length > 1 ? parents.reverse().slice(1).map(b => `/box_${b.name}`).join(' --> ') : '---'};
 			Описание: ${box.description || '---'};
 			Вложено: ${nested || '---'};
 			Вещи: ${stuff.map(v => v.name).join(', ') || '---'}
