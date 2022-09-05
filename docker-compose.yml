@@ -20,7 +20,7 @@ services:
     env_file:
       - .env
       - .prod.env
-
+    restart: on-failure
     command: bash -c "npm run typeorm migration:run && npm start"
 
 
